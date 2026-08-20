@@ -8,60 +8,53 @@ BACKCAST_LENGTH = 168
 FORECAST_LENGTH = 24
 
 
-def mae(true_value, predicted_value):
+def mean_absolute_error(true_value, predicted_value):
     return np.mean(np.abs(true_value - predicted_value))
 
 
-def rmse(y_true, y_pred):
-    return np.sqrt(np.mean((y_true - y_pred) ** 2))
+def root_mean_square_error(true_value, predicted_value):
+    mean_square_error = np.mean((true_value - predicted_value) ** 2)
+    return np.sqrt(mean_square_error)
 
 
-def mape(y_true, y_pred):
-    denominator = np.maximum(
-        np.abs(y_true),
-        1e-6,
-    )
-    return 100.0 * np.mean(np.abs((y_true - y_pred) / denominator))
+def mean_absolute_percentage_error(true_value, predicted_value):
+    denominator = np.maximum(np.abs(true_value), 1e-6)
+    numerator = true_value - predicted_value
+    
+    return np.mean(np.abs( numerator / denominator)) * 100
 
 
-def load_data(path):
-    df = pd.read_csv(
-        path,
-        sep=";",
-    )
-    timestamp_col = df.columns[0]
-    df[timestamp_col] = pd.to_datetime(df[timestamp_col])
-    df = df.set_index(timestamp_col)
-    df = df.apply(
-        pd.to_numeric,
-        errors="coerce",
-    )
+def load_uci_from_path(path):
 
-    hourly = df.resample("1h").mean()
-    missing_fraction = hourly.isna().mean()
-    valid_columns = missing_fraction[missing_fraction < 0.01].index
-    hourly = hourly[valid_columns]
-    hourly = hourly.interpolate(
+    dataframe = pd.read_csv(path, sep=";")
+    timestamp_column = dataframe.columns[0]
+    dataframe[timestamp_column] = pd.to_datetime(dataframe[timestamp_column])
+    dataframe = dataframe.set_index(timestamp_column)
+    dataframe = dataframe.apply(pd.to_numeric,errors="coerce")
+        
+    hourly_data = dataframe.resample("1h").mean()
+    missing_data = hourly_data.isna().mean()
+    
+    good_columns = missing_data < 0.01
+    hourly_data = hourly_data.loc[:, good_columns]
+    
+    hourly_data = hourly_data.interpolate(
         method="time",
         limit_direction="both",
     )
-    hourly = hourly.ffill().bfill()
-    return hourly
+    
+    hourly_data = hourly_data.ffill()
+    hourly_data = hourly_data.bfill()
 
+    return hourly_data
 
 def evaluate(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(
-        "Device:",
-        device,
-    )
 
-    checkpoint = torch.load(
-        args.checkpoint,
-        map_location=device,
-        weights_only=False,
-    )
+    checkpoint = torch.load( args.checkpoint, map_location=device ,weights_only=False)
+    
     config = checkpoint["model_config"]
+    
     model = NBeats(
         backcast_length=config["backcast_len"],
         forecast_length=config["forecast_len"],
@@ -74,120 +67,75 @@ def evaluate(args):
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    hourly = load_data(args.data)
-    n = len(hourly)
-    split = int(n * 0.80)
+    hourly_data = load_uci_from_path(args.data)
+    test_train_split = int(len(hourly_data) * 0.80)
 
-    train_df = hourly.iloc[:split]
-    test_df = hourly.iloc[split:]
+    train_dataframe = hourly_data.iloc[:test_train_split]
+    test_dataframe = hourly_data.iloc[test_train_split:]
 
-    series_names = checkpoint["series_names"]
     statistics = checkpoint["statistics"]
 
-    all_true = []
-    all_pred = []
+    all_true_value = []
+    all_predicted_value = []
 
-    print("Evaluating:", len(series_names), "series")
+    for column in checkpoint["series_names"]:
+        
+        train_values = train_dataframe[column].to_numpy(dtype=np.float32)
+        test_values = test_dataframe[column].to_numpy(dtype=np.float32)
 
-    for col in series_names:
-        train_values = train_df[col].to_numpy(dtype=np.float32)
-        test_values = test_df[col].to_numpy(dtype=np.float32)
+        mean = statistics[column]["mean"]
+        std_dev = statistics[column]["std"]
 
-        mean = statistics[col]["mean"]
-        std = statistics[col]["std"]
-
-        train_normalized = (train_values - mean) / std
-        test_normalized = (test_values - mean) / std
+        train_normalized = (train_values - mean) / std_dev
+        test_normalized = (test_values - mean) / std_dev
 
         history = list(train_normalized)
 
-        predictions = []
-        actuals = []
+        predicted_values = []
+        true_values = []
 
-        for start in range(
-            0,
-            len(test_normalized),
-            FORECAST_LENGTH,
-        ):
-            y_true = test_normalized[start : start + FORECAST_LENGTH]
+        for start in range(0, len(test_normalized), FORECAST_LENGTH):
+            
+            true_partition = test_normalized[start : start + FORECAST_LENGTH]
 
-            if len(y_true) < FORECAST_LENGTH:
+            if len(true_partition) < FORECAST_LENGTH:
                 break
 
             x = np.asarray(
                 history[-BACKCAST_LENGTH:],
                 dtype=np.float32,
             )
-            x_tensor = (
-                torch.tensor(
-                    x,
-                    dtype=torch.float32,
-                )
-                .unsqueeze(0)
-                .to(device)
-            )
+            x_tensor = torch.tensor(x, dtype=torch.float32).unsqueeze(0).to(device)
 
             with torch.no_grad():
-                pred = model(x_tensor)
+                prediction = model(x_tensor)
 
-            pred = pred.squeeze(0).cpu().numpy()
+            prediction = prediction.squeeze(0).cpu().numpy()
 
-            predictions.extend(pred)
-            actuals.extend(y_true)
-            history.extend(y_true)
+            predicted_values.extend(prediction)
+            true_values.extend(true_partition)
+            history.extend(true_partition)
 
-        predictions = np.asarray(predictions)
-        actuals = np.asarray(actuals)
+        predicted_values = np.asarray(predicted_values)
+        true_values = np.asarray(true_values)
 
-        predictions_original = predictions * std + mean
-        actuals_original = actuals * std + mean
+        predictions_original = predicted_values * std_dev + mean
+        actuals_original = true_values * std_dev + mean
 
-        all_pred.extend(predictions_original)
-        all_true.extend(actuals_original)
+        all_predicted_value.extend(predictions_original)
+        all_true_value.extend(actuals_original)
 
-    all_true = np.asarray(all_true)
-    all_pred = np.asarray(all_pred)
+    true_value = np.asarray(all_true_value, dtype=np.float32)
+    predicted_value = np.asarray(all_predicted_value, dtype=np.float32)
 
-    result_mae = mae(
-        all_true,
-        all_pred,
-    )
-    result_rmse = rmse(
-        all_true,
-        all_pred,
-    )
-    result_mape = mape(
-        all_true,
-        all_pred,
-    )
+    mae = mean_absolute_error(true_value, predicted_value)
+    rmse = root_mean_square_error(true_value, predicted_value)
+    mape = mean_absolute_percentage_error(true_value, predicted_value)
 
     print("UCI N-BEATS RESULTS")
-    print(f"MAE  : {result_mae:.6f}")
-    print(f"RMSE : {result_rmse:.6f}")
-    print(f"MAPE : {result_mape:.4f}%")
-
-    results = pd.DataFrame(
-        {
-            "metric": [
-                "MAE",
-                "RMSE",
-                "MAPE",
-            ],
-            "value": [
-                result_mae,
-                result_rmse,
-                result_mape,
-            ],
-        }
-    )
-    results.to_csv(
-        args.output,
-        index=False,
-    )
-    print(
-        "Saved results:",
-        args.output,
-    )
+    print(f"MAE  : {mae:.6f}")
+    print(f"RMSE : {rmse:.6f}")
+    print(f"MAPE : {mape:.4f}%")
 
 
 if __name__ == "__main__":
@@ -200,9 +148,6 @@ if __name__ == "__main__":
         "--checkpoint",
         default="./uci_nbeats.pt",
     )
-    parser.add_argument(
-        "--output",
-        default="./uci_results.csv",
-    )
+
     args = parser.parse_args()
     evaluate(args)
