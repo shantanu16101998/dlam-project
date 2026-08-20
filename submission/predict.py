@@ -545,6 +545,8 @@ def main(args):
         output_directory,
         exist_ok=True,
     )
+    
+    result = result.rename(columns={"target": "prediction"})
 
     result.to_csv(
         args.output_file,
@@ -582,12 +584,12 @@ def main(args):
 
     print(
         "Prediction min:",
-        float(result["target"].min())
+        float(result["prediction"].min())
     )
 
     print(
         "Prediction max:",
-        float(result["target"].max())
+        float(result["prediction"].max())
     )
 
     print()
