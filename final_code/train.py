@@ -10,10 +10,10 @@ from model import NBeats
 backcast_len = 672
 forecast_len = 336
 
-HIDDEN_SIZE = 256
+HIDDEN_LAYER_SIZE = 256
 THETA_SIZE = 128
-N_BLOCKS = 6
-N_LAYERS = 4
+NUMBER_OF_BLOCKS = 6
+NUMBER_OF_LAYERS = 4
 BATCH_SIZE = 128
 EPOCHS = 1
 LEARNING_RATE = 1e-3
@@ -136,10 +136,10 @@ def train(args):
     model = NBeats(
         backcast_length=backcast_len,
         forecast_length=forecast_len,
-        hidden_size=HIDDEN_SIZE,
+        hidden_size=HIDDEN_LAYER_SIZE,
         theta_size=THETA_SIZE,
-        number_of_blocks=N_BLOCKS,
-        number_of_layers=N_LAYERS,
+        number_of_blocks=NUMBER_OF_BLOCKS,
+        number_of_layers=NUMBER_OF_LAYERS,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -193,7 +193,7 @@ def train(args):
         scheduler.step(epoch_loss)
 
         print(
-            f"Epoch {epoch} loss={epoch_loss:.2f} learning_rate={optimizer.param_groups[0]['lr']:.2f}"
+            f"Epoch {epoch} loss={epoch_loss:.2f} learning_rate={optimizer.param_groups[0]['lr']:.5f}"
         )
 
         if epoch_loss < best_loss:
@@ -205,10 +205,10 @@ def train(args):
                 "model_config": {
                     "backcast_length": backcast_len,
                     "forecast_length": forecast_len,
-                    "hidden_size": HIDDEN_SIZE,
+                    "hidden_size": HIDDEN_LAYER_SIZE,
                     "theta_size": THETA_SIZE,
-                    "n_blocks": N_BLOCKS,
-                    "n_layers": N_LAYERS,
+                    "n_blocks": NUMBER_OF_BLOCKS,
+                    "n_layers": NUMBER_OF_LAYERS,
                 },
                 "series_ids": series_ids,
                 "statistics": statistics,
