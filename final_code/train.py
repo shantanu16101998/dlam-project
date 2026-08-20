@@ -88,13 +88,7 @@ def train(args):
     seed_everything(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device) 
-    (
-        series_ids,
-        series,
-        statistics,
-    ) = load_training_data(
-        args.train
-    )
+    series_ids, series, statistics = load_training_data(args.train)
 
     print( "Number of series:", len(series_ids))
     print("Observations per series:", len(series[0]))
