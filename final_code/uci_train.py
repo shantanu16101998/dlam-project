@@ -9,18 +9,9 @@ from torch.utils.data import Dataset, DataLoader
 
 from model import NBeats
 
-
-# ============================================================
-# Configuration
-# ============================================================
-
-# UCI data is converted from 15-minute to hourly.
-#
 # 7 days of hourly history
-BACKCAST_LENGTH = 24 * 7       # 168 hours
-
-# Predict the next 24 hours
-FORECAST_LENGTH = 24
+backcast_len = 24 * 7  
+forecast_len = 24
 
 HIDDEN_SIZE = 256
 THETA_SIZE = 128
@@ -32,19 +23,10 @@ EPOCHS = 2
 
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
-
-# Every 6 hours create a new training window.
 STRIDE = 6
-
-# Last 20% of the data is held out chronologically.
 TEST_RATIO = 0.20
-
 SEED = 42
 
-
-# ============================================================
-# Reproducibility
-# ============================================================
 
 def seed_everything(seed):
 
@@ -55,47 +37,24 @@ def seed_everything(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
-# ============================================================
-# Dataset
-# ============================================================
-
 class WindowDataset(Dataset):
 
-    def __init__(
-        self,
-        series,
-        backcast_length,
-        forecast_length,
-        stride,
-    ):
-
+    def __init__( self, series, backcast_len, forecast_len, stride,):
         self.series = series
-        self.backcast_length = backcast_length
-        self.forecast_length = forecast_length
-
+        self.backcast_len = backcast_len
+        self.forecast_len = forecast_len
         self.windows = []
 
-        total_length = (
-            backcast_length +
-            forecast_length
-        )
+        total_length = backcast_len +forecast_len
 
         for series_idx, values in enumerate(series):
-
             n = len(values)
-
             max_start = n - total_length
-
+            
             if max_start < 0:
                 continue
 
-            for start in range(
-                0,
-                max_start + 1,
-                stride,
-            ):
-
+            for start in range(0,max_start + 1,stride):
                 self.windows.append(
                     (series_idx, start)
                 )
@@ -104,215 +63,65 @@ class WindowDataset(Dataset):
         return len(self.windows)
 
     def __getitem__(self, idx):
-
         series_idx, start = self.windows[idx]
-
         values = self.series[series_idx]
-
-        x = values[
-            start:
-            start + self.backcast_length
-        ]
-
-        y = values[
-            start + self.backcast_length:
-            start +
-            self.backcast_length +
-            self.forecast_length
-        ]
+        x = values[start: start + self.backcast_len]
+        y = values[start + self.backcast_len: start + self.backcast_len + self.forecast_len]
 
         return (
-            torch.tensor(
-                x,
-                dtype=torch.float32,
-            ),
-            torch.tensor(
-                y,
-                dtype=torch.float32,
-            ),
+            torch.tensor(x, dtype=torch.float32, ),
+            torch.tensor(y,dtype=torch.float32, ),
         )
 
-
-# ============================================================
-# Load and preprocess UCI
-# ============================================================
-
 def load_uci(path):
-
-    print("=" * 70)
     print("Loading UCI Electricity Load Diagrams")
-    print("=" * 70)
+    df = pd.read_csv( path, sep=";",)
 
-    # UCI file is semicolon separated.
-    df = pd.read_csv(
-        path,
-        sep=";",
-    )
-
-    print(
-        "Raw shape:",
-        df.shape,
-    )
-
-    # First column is timestamp.
+    print( "Raw shape:", df.shape,)
     timestamp_col = df.columns[0]
-
-    df[timestamp_col] = pd.to_datetime(
-        df[timestamp_col]
-    )
-
-    df = df.set_index(
-        timestamp_col
-    )
-
-    # Convert client columns to numeric.
-    df = df.apply(
-        pd.to_numeric,
-        errors="coerce",
-    )
-
-    # --------------------------------------------------------
-    # 15-minute -> hourly
-    # --------------------------------------------------------
-
+    df[timestamp_col] = pd.to_datetime( df[timestamp_col])
+    df = df.set_index(timestamp_col)
+    df = df.apply(pd.to_numeric, errors="coerce",)
     print("Converting 15-minute data to hourly...")
-
     hourly = df.resample("1h").mean()
+    print("Hourly shape:",hourly.shape,)
+    missing_frac = hourly.isna().mean()
+    valid_columns = (missing_frac[missing_frac < 0.01].index)
+    hourly = hourly[valid_columns]
+    print("Usable clients:",len(hourly.columns),)
 
-    print(
-        "Hourly shape:",
-        hourly.shape,
-    )
-
-    # --------------------------------------------------------
-    # Remove columns with excessive missing data.
-    # --------------------------------------------------------
-
-    missing_fraction = hourly.isna().mean()
-
-    valid_columns = (
-        missing_fraction[
-            missing_fraction < 0.01
-        ].index
-    )
-
-    hourly = hourly[
-        valid_columns
-    ]
-
-    print(
-        "Usable clients:",
-        len(hourly.columns),
-    )
-
-    # --------------------------------------------------------
-    # Fill small gaps.
-    # --------------------------------------------------------
-
-    hourly = hourly.interpolate(
-        method="time",
-        limit_direction="both",
-    )
-
-    # Any remaining missing values:
+    hourly = hourly.interpolate( method="time", limit_direction="both",)
     hourly = hourly.ffill().bfill()
 
     return hourly
 
-
-# ============================================================
-# Create train/test series
-# ============================================================
-
-def prepare_series(
-    hourly,
-    test_ratio,
-):
-
+def prepare_series( hourly, test_ratio,):
     n = len(hourly)
-
-    split = int(
-        n * (1.0 - test_ratio)
-    )
-
-    train_df = hourly.iloc[
-        :split
-    ]
-
-    test_df = hourly.iloc[
-        split:
-    ]
-
-    print()
-    print(
-        "Total hourly observations:",
-        n,
-    )
-
-    print(
-        "Training observations:",
-        len(train_df),
-    )
-
-    print(
-        "Test observations:",
-        len(test_df),
-    )
+    split = int( n * (1.0 - test_ratio))
+    train_df = hourly.iloc[ :split]
+    test_df = hourly.iloc[split:]
 
     train_series = []
     test_series = []
-
     statistics = {}
 
     for col in hourly.columns:
+        train_values = (train_df[col].to_numpy(dtype=np.float32))
+        test_values = (test_df[col].to_numpy(dtype=np.float32))
 
-        train_values = (
-            train_df[col]
-            .to_numpy(dtype=np.float32)
-        )
-
-        test_values = (
-            test_df[col]
-            .to_numpy(dtype=np.float32)
-        )
-
-        mean = float(
-            np.mean(train_values)
-        )
-
-        std = float(
-            np.std(train_values)
-        )
+        mean = float( np.mean(train_values))
+        std = float( np.std(train_values))
 
         if std < 1e-6:
             continue
 
-        # IMPORTANT:
-        # Normalize using TRAINING statistics only.
-        train_normalized = (
-            train_values - mean
-        ) / std
+        train_normalized = ( train_values - mean ) / std
+        test_normalized = ( test_values - mean ) / std
 
-        test_normalized = (
-            test_values - mean
-        ) / std
+        train_series.append(train_normalized.astype(np.float32))
+        test_series.append(test_normalized.astype(np.float32))
 
-        train_series.append(
-            train_normalized.astype(
-                np.float32
-            )
-        )
-
-        test_series.append(
-            test_normalized.astype(
-                np.float32
-            )
-        )
-
-        statistics[col] = {
-            "mean": mean,
-            "std": std,
-        }
+        statistics[col] = {"mean": mean,"std": std,}
 
     return (
         train_series,
@@ -321,61 +130,22 @@ def prepare_series(
         statistics,
     )
 
-
-# ============================================================
-# Train
-# ============================================================
-
 def train(args):
 
     seed_everything(SEED)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu" )
+    print("Device:", device,)
 
-    device = torch.device(
-        "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
-    )
-
-    print()
-    print(
-        "Device:",
-        device,
-    )
-
-    # --------------------------------------------------------
-    # Load UCI
-    # --------------------------------------------------------
-
-    hourly = load_uci(
-        args.data
-    )
-
-    (
-        train_series,
-        test_series,
-        series_names,
-        statistics,
-    ) = prepare_series(
-        hourly,
-        TEST_RATIO,
-    )
-
-    # --------------------------------------------------------
-    # Training windows
-    # --------------------------------------------------------
+    hourly = load_uci(args.data)(train_series, test_series, series_names, statistics,) = prepare_series( hourly, TEST_RATIO, )
 
     dataset = WindowDataset(
         series=train_series,
-        backcast_length=BACKCAST_LENGTH,
-        forecast_length=FORECAST_LENGTH,
+        backcast_len=backcast_len,
+        forecast_len=forecast_len,
         stride=STRIDE,
     )
 
-    print()
-    print(
-        "Training windows:",
-        len(dataset),
-    )
+    print( "Training windows:", len(dataset), )
 
     loader = DataLoader(
         dataset,
@@ -385,49 +155,23 @@ def train(args):
         pin_memory=torch.cuda.is_available(),
     )
 
-    # --------------------------------------------------------
-    # Model
-    # --------------------------------------------------------
 
     model = NBeats(
-        backcast_length=BACKCAST_LENGTH,
-        forecast_length=FORECAST_LENGTH,
+        backcast_len=backcast_len,
+        forecast_len=forecast_len,
         hidden_size=HIDDEN_SIZE,
         theta_size=THETA_SIZE,
         n_blocks=N_BLOCKS,
         n_layers=N_LAYERS,
     ).to(device)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=LEARNING_RATE,
-        weight_decay=WEIGHT_DECAY,
-    )
-
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=3,
-    )
-
-    loss_fn = torch.nn.HuberLoss(
-        delta=1.0
-    )
-
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE,  weight_decay=WEIGHT_DECAY, )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau( optimizer, mode="min", factor=0.5, patience=3,)
+    loss_fn = torch.nn.HuberLoss( delta=1.0)
     best_loss = float("inf")
 
-    # --------------------------------------------------------
-    # Training
-    # --------------------------------------------------------
-
-    for epoch in range(
-        1,
-        EPOCHS + 1,
-    ):
-
+    for epoch in range( 1, EPOCHS + 1, ):
         model.train()
-
         running_loss = 0.0
         count = 0
 
@@ -437,64 +181,37 @@ def train(args):
             y = y.to(device)
 
             optimizer.zero_grad()
-
             prediction = model(x)
-
-            loss = loss_fn(
-                prediction,
-                y,
-            )
-
+            loss = loss_fn( prediction, y,)
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_norm=1.0,
-            )
+            torch.nn.utils.clip_grad_norm_( model.parameters(), max_norm=1.0, )
 
             optimizer.step()
-
             batch_size = x.size(0)
-
-            running_loss += (
-                loss.item() *
-                batch_size
-            )
-
+            running_loss += (loss.item() * batch_size)
             count += batch_size
 
-        epoch_loss = (
-            running_loss / count
-        )
-
-        scheduler.step(
-            epoch_loss
-        )
-
+        epoch_loss = (running_loss / count)
+        scheduler.step( epoch_loss)
         print(
             f"Epoch {epoch:03d} | "
             f"loss={epoch_loss:.6f} | "
             f"lr={optimizer.param_groups[0]['lr']:.2e}"
         )
 
-        # ----------------------------------------------------
-        # Save best model
-        # ----------------------------------------------------
-
         if epoch_loss < best_loss:
-
             best_loss = epoch_loss
-
             checkpoint = {
                 "model_state_dict":
                     model.state_dict(),
 
                 "model_config": {
-                    "backcast_length":
-                        BACKCAST_LENGTH,
+                    "backcast_len":
+                        backcast_len,
 
-                    "forecast_length":
-                        FORECAST_LENGTH,
+                    "forecast_len":
+                        forecast_len,
 
                     "hidden_size":
                         HIDDEN_SIZE,
@@ -528,56 +245,18 @@ def train(args):
                     "24 hours",
             }
 
-            os.makedirs(
-                os.path.dirname(
-                    os.path.abspath(
-                        args.output
-                    )
-                ),
-                exist_ok=True,
-            )
+            os.makedirs( os.path.dirname(os.path.abspath(args.output)), exist_ok=True,)
 
-            torch.save(
-                checkpoint,
-                args.output,
-            )
+            torch.save(checkpoint, args.output,)
 
-            print(
-                "Saved:",
-                args.output,
-            )
+            print("Saved:", args.output,)
+    print("Training complete." )
 
-    print()
-    print(
-        "Training complete."
-    )
-
-    return (
-        model,
-        test_series,
-        series_names,
-        statistics,
-    )
-
-
-# ============================================================
-# Main
-# ============================================================
+    return ( model, test_series, series_names, statistics,)
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--data",
-        default="./electricityloaddiagrams20112014/LD2011_2014.txt",
-    )
-
-    parser.add_argument(
-        "--output",
-        default="./uci_nbeats.pt",
-    )
-
+    parser.add_argument( "--data", default="./electricityloaddiagrams20112014/LD2011_2014.txt",)
+    parser.add_argument( "--output", default="./uci_nbeats.pt",)
     args = parser.parse_args()
-
     train(args)
