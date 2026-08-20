@@ -52,12 +52,12 @@ class NBeats(nn.Module):
 
     def __init__(
         self,
-        backcast_length=672,
-        forecast_length=336,
-        hidden_size=256,
-        theta_size=128,
-        number_of_blocks=6,
-        number_of_layers=4,
+        backcast_length,
+        forecast_length,
+        hidden_size,
+        theta_size,
+        number_of_blocks,
+        number_of_layers,
     ):
         super().__init__()
 
