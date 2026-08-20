@@ -141,8 +141,8 @@ def train(args):
 
     dataset = WindowDataset(
         series=train_series,
-        backcast_length=backcast_len,
-        forecast_length=forecast_len,
+        backcast_len=backcast_len,
+        forecast_len=forecast_len,
         stride=STRIDE,
     )
 
@@ -157,7 +157,7 @@ def train(args):
     )
 
 
-    model = NBeats(backcast_length=backcast_len, forecast_length=forecast_len, hidden_size=HIDDEN_SIZE, theta_size=THETA_SIZE, n_blocks=N_BLOCKS, n_layers=N_LAYERS,).to(device)
+    model = NBeats(backcast_length=backcast_len, forecast_length=forecast_len, hidden_size=HIDDEN_SIZE, theta_size=THETA_SIZE, number_of_blocks=N_BLOCKS, number_of_layers=N_LAYERS,).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE,  weight_decay=WEIGHT_DECAY, )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau( optimizer, mode="min", factor=0.5, patience=3,)
