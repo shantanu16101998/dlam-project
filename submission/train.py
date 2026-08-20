@@ -23,7 +23,7 @@ N_BLOCKS = 6
 N_LAYERS = 4
 
 BATCH_SIZE = 128
-EPOCHS = 10
+EPOCHS = 1
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
 
@@ -365,7 +365,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--output",
-        default="./checkpoint.pt",
+        default="./submission/checkpoint.pt",
     )
 
     args = parser.parse_args()
