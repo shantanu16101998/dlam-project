@@ -50,7 +50,7 @@ class WindowDataset(Dataset):
         for series_idx, values in enumerate(series):
             n = len(values)
             max_start = n - total_length
-            
+
             if max_start < 0:
                 continue
 
@@ -156,14 +156,7 @@ def train(args):
     )
 
 
-    model = NBeats(
-        backcast_len=backcast_len,
-        forecast_len=forecast_len,
-        hidden_size=HIDDEN_SIZE,
-        theta_size=THETA_SIZE,
-        n_blocks=N_BLOCKS,
-        n_layers=N_LAYERS,
-    ).to(device)
+    model = NBeats(backcast_len=backcast_len, forecast_len=forecast_len, hidden_size=HIDDEN_SIZE, theta_size=THETA_SIZE, n_blocks=N_BLOCKS, n_layers=N_LAYERS,).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE,  weight_decay=WEIGHT_DECAY, )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau( optimizer, mode="min", factor=0.5, patience=3,)
