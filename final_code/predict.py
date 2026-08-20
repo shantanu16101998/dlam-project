@@ -20,8 +20,8 @@ def load_checkpoint(path, device):
         forecast_length=Config["forecast_length"],
         hidden_size=Config["hidden_size"],
         theta_size=Config["theta_size"],
-        n_blocks=Config["n_blocks"],
-        n_layers=Config["n_layers"],
+        number_of_blocks=Config["n_blocks"],
+        number_of_layers=Config["n_layers"],
     )
 
     model.load_state_dict(checkpoint["model_state_dict"])
