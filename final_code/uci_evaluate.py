@@ -40,12 +40,12 @@ def evaluate(args):
     checkpoint = torch.load( args.checkpoint, map_location=device, weights_only=False,)
     config = checkpoint["model_config"]
     model = NBeats(
-        backcast_length=config["backcast_length"],
-        forecast_length=config["forecast_length"],
+        backcast_length=config["backcast_len"],
+        forecast_length=config["forecast_len"],
         hidden_size=config["hidden_size"],
         theta_size=config["theta_size"],
-        n_blocks=config["n_blocks"],
-        n_layers=config["n_layers"],
+        number_of_blocks=config["n_blocks"],
+        number_of_layers=config["n_layers"],
     ).to(device)
 
     model.load_state_dict(checkpoint["model_state_dict"])
