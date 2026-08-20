@@ -48,61 +48,61 @@ class WindowDataset(Dataset):
 
         total_length = backcast_len + forecast_len
 
-        for series_idx, values in enumerate(series):
+        for i, values in enumerate(series):
             n = len(values)
-            max_start = n - total_length
-            for start in range(
-                0,
-                max_start + 1,
-                stride,
-            ):
-                self.windows.append((series_idx, start))
+            last_possible_start = n - total_length
+            for start in range(0, last_possible_start + 1, stride):
+                self.windows.append((i, start))
 
     def __len__(self):
         return len(self.windows)
 
-    def __getitem__(self, idx):
-        series_idx, start = self.windows[idx]
-        values = self.series[series_idx]
-        x = values[start : start + self.backcast_len]
-        y = values[
-            start + self.backcast_len : start + self.backcast_len + self.forecast_len
-        ]
-        return (
-            torch.tensor(x, dtype=torch.float32),
-            torch.tensor(y, dtype=torch.float32),
-        )
+    def __getitem__(self, index_position):
+        series_index, start = self.windows[index_position]
+        values = self.series[series_index]
+        backcast_end = start + self.backcast_len
+        forecast_end = backcast_end + self.forecast_len
+        
+        x = values[start : backcast_end]
+        x = torch.tensor(x, dtype=torch.float32)
+        
+        y = values[backcast_end : forecast_end]
+        y = torch.tensor(y, dtype=torch.float32)
+        
+        return x,y
 
 
 def load_training_data(path):
-    df = pd.read_csv(path)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values(["series_id", "timestamp"]).reset_index(drop=True)
-    series_ids = sorted(df["series_id"].unique())
+    dataframe = pd.read_csv(path, parse_dates=["timestamp"])
+    
+    dataframe = dataframe.sort_values(["series_id", "timestamp"]).reset_index(drop=True)
+    series_ids = sorted(dataframe["series_id"].unique())
 
     series = []
     statistics = {}
 
-    for sid in series_ids:
-        sub = df[df["series_id"] == sid].sort_values("timestamp")
-        values = sub["target"].astype(float).to_numpy()
-
-        if np.isnan(values).any():
-            raise ValueError(f"Target contains NaN values in {sid}")
+    for series_id in series_ids:
+        series_id_df = dataframe[dataframe["series_id"] == series_id]
+        series_id_df = series_id_df.sort_values("timestamp")
+        
+        values = series_id_df["target"].astype(float).to_numpy()
 
         mean = float(values.mean())
-        std = float(values.std())
+        std_dev = float(values.std())
 
-        if std < 1e-6:
+    
+        # regularisation term needed
+        if std_dev < 1e-6:
             std = 1.0
 
-        normalized = (values - mean) / std
+        normalized = (values - mean) / std_dev
         series.append(normalized.astype(np.float32))
 
-        statistics[sid] = {
+        statistics[series_id] = {
             "mean": mean,
-            "std": std,
+            "std": std_dev,
         }
+
     return (
         series_ids,
         series,
@@ -113,11 +113,10 @@ def load_training_data(path):
 def train(args):
     seed_everything(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Device:", device)
     series_ids, series, statistics = load_training_data(args.train)
 
-    print("Number of series:", len(series_ids))
-    print("Observations per series:", len(series[0]))
+    print("Number of series: ", len(series_ids))
+    print("Observations per series: ", len(series[0]))
 
     dataset = WindowDataset(
         series=series,
@@ -125,13 +124,13 @@ def train(args):
         forecast_len=forecast_len,
         stride=6,
     )
+    
     print("Training windows:", len(dataset))
     loader = DataLoader(
         dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=0,
-        pin_memory=torch.cuda.is_available(),
+        num_workers=0
     )
 
     model = NBeats(
@@ -148,6 +147,7 @@ def train(args):
         lr=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
     )
+    
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -155,12 +155,12 @@ def train(args):
         patience=3,
     )
 
-    loss_fn = torch.nn.HuberLoss(delta=1.0)
+    huber_loss = torch.nn.HuberLoss(delta=1.0)
     best_loss = float("inf")
 
     for epoch in range(1, EPOCHS + 1):
         model.train()
-        running_loss = 0.0
+        total_loss = 0.0
         count = 0
 
         for x, y in loader:
@@ -170,29 +170,30 @@ def train(args):
             optimizer.zero_grad()
             prediction = model(x)
 
-            loss = loss_fn(
+            loss = huber_loss(
                 prediction,
                 y,
             )
             loss.backward()
 
+            # clip values for better training
+            
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
                 max_norm=1.0,
             )
+            
             optimizer.step()
             batch_size = x.size(0)
 
-            running_loss += loss.item() * batch_size
+            total_loss += loss.item() * batch_size
             count += batch_size
 
-        epoch_loss = running_loss / count
+        epoch_loss = total_loss / count
         scheduler.step(epoch_loss)
 
         print(
-            f"Epoch {epoch:03d} | "
-            f"loss={epoch_loss:.6f} | "
-            f"lr={optimizer.param_groups[0]['lr']:.2e}"
+            f"Epoch {epoch} loss={epoch_loss:.2f} learning_rate={optimizer.param_groups[0]['lr']:.2f}"
         )
 
         if epoch_loss < best_loss:
@@ -214,10 +215,7 @@ def train(args):
                 "best_train_loss": best_loss,
             }
 
-            torch.save(
-                checkpoint,
-                args.output,
-            )
+            torch.save(checkpoint, args.output)
 
             print("Saved checkpoint:", args.output)
 
