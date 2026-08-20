@@ -136,7 +136,8 @@ def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu" )
     print("Device:", device,)
 
-    hourly = load_uci(args.data)(train_series, test_series, series_names, statistics,) = prepare_series( hourly, TEST_RATIO, )
+    hourly = load_uci(args.data)
+    train_series, test_series, series_names, statistics, = prepare_series( hourly, TEST_RATIO,)
 
     dataset = WindowDataset(
         series=train_series,
