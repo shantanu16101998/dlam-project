@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # ============================================================
 
 CSV_PATH = PROJECT_ROOT / "data" / "input" / "train.csv"
-CHECKPOINT_PATH = PROJECT_ROOT / "submission" / "forecast_lstm.pt"
+CHECKPOINT_PATH = PROJECT_ROOT / "submission" / "checkpoint.pt"
 
 SEQUENCE_LENGTH = 48
 HORIZON = 24
@@ -27,7 +27,7 @@ HIDDEN_SIZE = 64
 NUM_LAYERS = 2
 
 BATCH_SIZE = 128
-EPOCHS = 1
+EPOCHS = 2
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
 

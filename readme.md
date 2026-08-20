@@ -20,3 +20,5 @@ python predict.py --input_dir /data/input --output_file /output/predictions.csv 
 ```
 
 It means we need to change predict.py to accomodate model
+
+just run predict.py inside submission.
