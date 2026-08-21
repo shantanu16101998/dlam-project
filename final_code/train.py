@@ -15,7 +15,7 @@ THETA_SIZE = 128
 NUMBER_OF_BLOCKS = 6
 NUMBER_OF_LAYERS = 4
 BATCH_SIZE = 128
-EPOCHS = 1
+EPOCHS = 30
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
 SEED = 42
@@ -155,7 +155,6 @@ def train(args):
         patience=3,
     )
 
-    huber_loss = torch.nn.HuberLoss(delta=1.0)
     best_loss = float("inf")
 
     for epoch in range(1, EPOCHS + 1):
@@ -170,10 +169,7 @@ def train(args):
             optimizer.zero_grad()
             prediction = model(x)
 
-            loss = huber_loss(
-                prediction,
-                y,
-            )
+            loss = torch.mean(torch.abs(prediction - y))
             loss.backward()
 
             # clip values for better training
