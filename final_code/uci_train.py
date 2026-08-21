@@ -9,6 +9,10 @@ from torch.utils.data import Dataset, DataLoader
 
 from model import NBeats
 
+# TRAIN_END = "2012-12-31 23:00:00"
+# VAL_END = "2013-12-31 23:00:00"
+
+
 backcast_len = 24 * 7
 forecast_len = 24
 
@@ -18,7 +22,7 @@ NUMBER_OF_BLOCKS = 6
 NUMBER_OF_LAYERS = 4
 
 BATCH_SIZE = 256
-EPOCHS = 2
+EPOCHS = 10
 
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5

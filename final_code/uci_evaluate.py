@@ -23,6 +23,21 @@ def mean_absolute_percentage_error(true_value, predicted_value):
     
     return np.mean(np.abs( numerator / denominator)) * 100
 
+def mean_square_error(true_value, predicted_value):
+    return np.mean((true_value - predicted_value) ** 2)
+
+def symmetric_mean_absolute_percentage_error(true_value, predicted_value):
+    numerator = 2 * np.abs(predicted_value - true_value)
+    denomiator = np.abs(true_value) + np.abs(predicted_value) + 1e-10
+
+    return np.mean( numerator / denomiator) * 100
+
+def weighted_absolute_percentage_error(true_value, predicted_value):
+    numerator = np.sum(np.abs(true_value - predicted_value))
+    denominator = np.sum(np.abs(true_value)) + 1e-10
+    
+    return ( numerator / denominator) * 100
+
 
 def load_uci_from_path(path):
 
@@ -131,12 +146,18 @@ def evaluate(args):
     mae = mean_absolute_error(true_value, predicted_value)
     rmse = root_mean_square_error(true_value, predicted_value)
     mape = mean_absolute_percentage_error(true_value, predicted_value)
+    mse = mean_square_error(true_value, predicted_value)
+    smape = symmetric_mean_absolute_percentage_error(true_value, predicted_value)
+    wape = weighted_absolute_percentage_error(true_value, predicted_value)
 
     print("UCI N-BEATS RESULTS")
     print(f"MAE  : {mae:.6f}")
     print(f"RMSE : {rmse:.6f}")
+    print("Mape will be high because around 20 percent of the data contains values that are 0.")
     print(f"MAPE : {mape:.4f}%")
-
+    print(f"MSE  : {mse:.6f}")
+    print(f"SMAPE : {smape:.4f}%")
+    print(f"WAPE  : {wape:.6f}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
