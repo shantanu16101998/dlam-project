@@ -20,6 +20,8 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
 SEED = 42
 
+WAPE_WEIGHT = 0.8
+HUBER_WEIGHT = 0.2
 
 def seed_everything(seed):
     random.seed(seed)
@@ -43,7 +45,6 @@ class WindowDataset(Dataset):
         self.backcast_len = backcast_len
         self.forecast_len = forecast_len
         self.stride = stride
-
         self.windows = []
 
         total_length = backcast_len + forecast_len
@@ -69,15 +70,15 @@ class WindowDataset(Dataset):
         y = values[backcast_end : forecast_end]
         y = torch.tensor(y, dtype=torch.float32)
         
-        return x,y
+        return x,y, series_index
 
 
 def load_training_data(path):
     dataframe = pd.read_csv(path, parse_dates=["timestamp"])
-    
-    dataframe = dataframe.sort_values(["series_id", "timestamp"]).reset_index(drop=True)
-    series_ids = sorted(dataframe["series_id"].unique())
+    dataframe = dataframe.sort_values(["series_id", "timestamp"])
+    dataframe = dataframe.reset_index(drop=True)
 
+    series_ids = sorted(dataframe["series_id"].unique())
     series = []
     statistics = {}
 
@@ -89,25 +90,30 @@ def load_training_data(path):
 
         mean = float(values.mean())
         std_dev = float(values.std())
-
     
-        # regularisation term needed
         if std_dev < 1e-6:
-            std = 1.0
+            std_dev = 1.0
 
         normalized = (values - mean) / std_dev
         series.append(normalized.astype(np.float32))
 
-        statistics[series_id] = {
-            "mean": mean,
-            "std": std_dev,
-        }
+        statistics[series_id] = {"mean": mean, "std": std_dev,}
 
-    return (
-        series_ids,
-        series,
-        statistics,
-    )
+    return series_ids, series, statistics
+
+def original_scale_wape(prediction, target, series_indices, means, standard_deviations,):
+    batch_means = means[series_indices].unsqueeze(1)
+    batch_stds = standard_deviations[series_indices].unsqueeze(1)
+
+    prediction_original = prediction * batch_stds + batch_means
+    target_original = target * batch_stds + batch_means
+
+    absolute_error = torch.abs(prediction_original - target_original).sum()
+    absolute_target = torch.abs(target_original).sum()
+
+    wape = absolute_error / absolute_target.clamp_min(1e-6)
+
+    return wape, absolute_error, absolute_target
 
 
 def train(args):
@@ -156,27 +162,48 @@ def train(args):
     )
 
     huber_loss = torch.nn.HuberLoss(delta=1.0)
-    best_loss = float("inf")
+
+    means = torch.tensor(
+        [statistics[series_id]["mean"] for series_id in series_ids],
+        dtype=torch.float32,
+        device=device,
+    )
+    standard_deviations = torch.tensor(
+        [statistics[series_id]["std"] for series_id in series_ids],
+        dtype=torch.float32,
+        device=device,
+    )
+
+    best_wape = float("inf")
 
     for epoch in range(1, EPOCHS + 1):
         model.train()
         total_loss = 0.0
         count = 0
+        total_absolute_error = 0.0
+        total_absolute_target = 0.0
+        
 
-        for x, y in loader:
+        for x, y, series_indices in loader:
             x = x.to(device)
             y = y.to(device)
+            series_indices = series_indices.to(device)
 
             optimizer.zero_grad()
             prediction = model(x)
 
-            loss = huber_loss(
+            wape_loss, error_sum, target_sum = original_scale_wape(
                 prediction,
                 y,
+                series_indices,
+                means,
+                standard_deviations,
             )
+            
+            stable_loss = huber_loss( prediction, y)
+            loss = (WAPE_WEIGHT * wape_loss + HUBER_WEIGHT * stable_loss)
             loss.backward()
 
-            # clip values for better training
             
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
@@ -188,17 +215,19 @@ def train(args):
 
             total_loss += loss.item() * batch_size
             count += batch_size
+            total_absolute_error += error_sum.detach().item()
+            total_absolute_target += target_sum.detach().item()            
 
         epoch_loss = total_loss / count
+        epoch_wape = (100.0 * total_absolute_error / max(total_absolute_target, 1e-6))
         scheduler.step(epoch_loss)
 
         print(
-            f"Epoch {epoch} loss={epoch_loss:.2f} learning_rate={optimizer.param_groups[0]['lr']:.5f}"
+            f"Epoch {epoch} loss={epoch_loss:.6f} WAPE={epoch_wape:.4f}% learning_rate={optimizer.param_groups[0]['lr']:.5f}"
         )
 
-        if epoch_loss < best_loss:
-
-            best_loss = epoch_loss
+        if epoch_wape < best_wape:
+            best_wape = epoch_wape
 
             checkpoint = {
                 "model_state_dict": model.state_dict(),
@@ -212,11 +241,15 @@ def train(args):
                 },
                 "series_ids": series_ids,
                 "statistics": statistics,
-                "best_train_loss": best_loss,
+                "best_train_wape": best_wape,
+                "best_train_loss": epoch_loss,
+                "loss_config": {
+                    "wape_weight": WAPE_WEIGHT,
+                    "huber_weight": HUBER_WEIGHT,
+                },
             }
 
             torch.save(checkpoint, args.output)
-
             print("Saved checkpoint:", args.output)
 
 
