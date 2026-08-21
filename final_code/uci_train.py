@@ -8,9 +8,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 from model import NBeats
-
-# TRAIN_END = "2012-12-31 23:00:00"
-# VAL_END = "2013-12-31 23:00:00"
+from windowed_dataset import WindowDataset
 
 
 backcast_len = 24 * 7
@@ -84,7 +82,7 @@ class WindowDataset(Dataset):
 
 def load_uci_from_path(path):
 
-    dataframe = pd.read_csv(path, sep=";")
+    dataframe = pd.read_csv(path, sep=";",low_memory=False)
     timestamp_column = dataframe.columns[0]
     dataframe[timestamp_column] = pd.to_datetime(dataframe[timestamp_column])
     dataframe = dataframe.set_index(timestamp_column)

@@ -41,7 +41,7 @@ def weighted_absolute_percentage_error(true_value, predicted_value):
 
 def load_uci_from_path(path):
 
-    dataframe = pd.read_csv(path, sep=";")
+    dataframe = pd.read_csv(path, sep=";", low_memory=False)
     timestamp_column = dataframe.columns[0]
     dataframe[timestamp_column] = pd.to_datetime(dataframe[timestamp_column])
     dataframe = dataframe.set_index(timestamp_column)
